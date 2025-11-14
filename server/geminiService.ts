@@ -340,4 +340,3 @@ export async function answerQuery(query: string, geminiFileName: string): Promis
   console.log(`[QUERY] Got answer.`);
   return text.trim();
 }
-```eof
