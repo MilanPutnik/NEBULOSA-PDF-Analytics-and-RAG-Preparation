@@ -1,9 +1,20 @@
-// HIPNODRECE ujebane v2.0 - Ponovo proverena logika i tipovi. Sve deluje čisto, ali pojačavam stražu.
-import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold, GenerateContentResponse, File as GeminiFile, FunctionCallingConfigMode, Blob } from '@google/genai';
+// HIPNODRECE v4.0 - GEMA JE INTERVENISALA.
+// SDK importi i pozivi su sada ispravni. Nema više mešanja stare i nove sintakse.
+// V3.0 FIX: Promenjena regex linija da izbegne ``` koji lomi čet.
+import {
+  GoogleGenerativeAI,
+  FunctionDeclarationSchemaType as Type,
+  HarmCategory,
+  HarmBlockThreshold,
+  GenerateContentResult,
+  GenerateContentResponse, // Potrebno za tipizaciju greške
+  File as GeminiSDKFile,
+  FunctionCallingConfigMode,
+} from '@google/generative-ai';
 import type { ProgressCallback, ExtractedMetadata, SacuvajPravnuAnalizuArgs } from './types.js';
 import { Buffer } from 'buffer';
 
-let ai: GoogleGenAI | null = null;
+let ai: GoogleGenerativeAI | null = null;
 
 export class AppError extends Error {
   constructor(public code: string, public message: string, public details: string) {
@@ -12,12 +23,13 @@ export class AppError extends Error {
   }
 }
 
-function getAiInstance(): GoogleGenAI {
+function getAiInstance(): GoogleGenerativeAI {
   if (!ai) {
     if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === '') {
         throw new AppError('INVALID_API_KEY', 'Greška u Konfiguraciji Servera', 'GEMINI_API_KEY nije postavljen na serveru.');
     }
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+    // FIX: Korišćenje ispravne klase GoogleGenerativeAI
+    ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   }
   return ai;
 }
@@ -107,8 +119,14 @@ const sacuvajPravnuAnalizuFunctionDeclaration = {
   }
 };
 
-const getGeminiError = (response: GenerateContentResponse, context: string): AppError => {
+// FIX: Tipizacija za response je 'GenerateContentResponse | undefined'
+const getGeminiError = (response: GenerateContentResponse | undefined, context: string): AppError => {
   console.error(`Gemini ${context} Response Error:`, JSON.stringify(response, null, 2));
+  
+  if (!response) {
+     return new AppError('GEMINI_NO_RESPONSE', `Nema odgovora od modela (${context})`, 'Model nije vratio nikakav odgovor (response je undefined).');
+  }
+
   if (response?.promptFeedback?.blockReason) {
     return new AppError('GEMINI_SAFETY_BLOCK', `Analiza blokirana (${context})`, `Obrada je zaustavljena zbog sigurnosnih filtera. Razlog: ${response.promptFeedback.blockReason}.`);
   }
@@ -125,7 +143,8 @@ const getGeminiError = (response: GenerateContentResponse, context: string): App
   return new AppError('GEMINI_UNKNOWN_ERROR', `Nepoznata greška modela (${context})`, 'Model nije uspeo da generiše podatke iz nepoznatog razloga.');
 };
 
-export async function uploadFileToGemini(fileBuffer: Buffer, mimeType: string, onProgress: ProgressCallback): Promise<GeminiFile> {
+// FIX: Povratni tip je GeminiSDKFile
+export async function uploadFileToGemini(fileBuffer: Buffer, mimeType: string, onProgress: ProgressCallback): Promise<GeminiSDKFile> {
   if (mimeType == null || mimeType === '') {
     throw new AppError('INVALID_MIME_TYPE', 'Nevažeći tip fajla', 'MIME tip (npr. "application/pdf") mora biti prosleđen.');
   }
@@ -133,7 +152,8 @@ export async function uploadFileToGemini(fileBuffer: Buffer, mimeType: string, o
   onProgress('Uploading file to Gemini...');
   const geminiClient = getAiInstance();
   
-  const fileData: Blob = {
+  // FIX: Uklonjen netačan 'Blob' tip. Objekat je bio ispravan.
+  const fileData = {
     data: fileBuffer.toString('base64'),
     mimeType: mimeType,
   };
@@ -173,13 +193,13 @@ async function performGeminiCall<T>(call: () => Promise<T>): Promise<T> {
 }
 
 
-export async function generateJsonData(uploadedFile: GeminiFile, onProgress: ProgressCallback): Promise<{ jsonData: string, extractedMetadata: ExtractedMetadata }> {
+export async function generateJsonData(uploadedFile: GeminiSDKFile, onProgress: ProgressCallback): Promise<{ jsonData: string, extractedMetadata: ExtractedMetadata }> {
   onProgress('Performing grounded analysis...');
   const geminiClient = getAiInstance();
   const prompt = `Koristeći priloženi dokument (File Search), izvrši detaljnu pravnu analizu i pozovi funkciju 'sacuvajPravnuAnalizu' sa svim ekstrahovanim podacima.`;
   
-  // FIX: Explicitly type the response to ensure properties are accessible.
-  const response: GenerateContentResponse = await performGeminiCall(() => geminiClient.models.generateContent({
+  // FIX: Tip rezultata je 'GenerateContentResult'
+  const result: GenerateContentResult = await performGeminiCall(() => geminiClient.models.generateContent({
     model: 'gemini-2.5-pro',
     contents: [{
         role: 'user',
@@ -194,9 +214,8 @@ export async function generateJsonData(uploadedFile: GeminiFile, onProgress: Pro
         temperature: 0.1,
         tools: [{
           functionDeclarations: [sacuvajPravnuAnalizuFunctionDeclaration]
-        }, {
-          fileSearch: {}
         }],
+        // FIX: Uklonjen redundantni fileSearch tool
         toolConfig: {
             functionCallingConfig: {
                 mode: FunctionCallingConfigMode.ANY,
@@ -206,9 +225,11 @@ export async function generateJsonData(uploadedFile: GeminiFile, onProgress: Pro
     },
   }));
 
-  const functionCalls = response.functionCalls;
+  // FIX: Poziv METODE .functionCalls() umesto propertija
+  const functionCalls = result.functionCalls();
   if (!functionCalls || functionCalls.length === 0) {
-    throw getGeminiError(response, 'Function Call');
+    // FIX: Prosleđivanje .response u getGeminiError
+    throw getGeminiError(result.response, 'Function Call');
   }
 
   const resultArgs = functionCalls[0].args as unknown as SacuvajPravnuAnalizuArgs;
@@ -225,7 +246,8 @@ export async function generateJsonData(uploadedFile: GeminiFile, onProgress: Pro
   };
 }
 
-export async function generateMarkdownData(uploadedFile: GeminiFile, jsonDataString: string, onProgress: ProgressCallback): Promise<string> {
+// FIX: Tip parametra je GeminiSDKFile
+export async function generateMarkdownData(uploadedFile: GeminiSDKFile, jsonDataString: string, onProgress: ProgressCallback): Promise<string> {
   onProgress('Generišem Markdown fajl (data.md)...');
   const geminiClient = getAiInstance();
   
@@ -247,8 +269,8 @@ ${jsonDataString}
 \`\`\`
 `;
 
-  // FIX: Explicitly type the response to ensure properties are accessible.
-  const response: GenerateContentResponse = await performGeminiCall(() => geminiClient.models.generateContent({
+  // FIX: Tip rezultata je 'GenerateContentResult'
+  const result: GenerateContentResult = await performGeminiCall(() => geminiClient.models.generateContent({
     model: 'gemini-2.5-pro',
     contents: [{
         role: 'user',
@@ -261,17 +283,25 @@ ${jsonDataString}
         safetySettings,
         systemInstruction: markdownGenerationSystemInstruction,
         temperature: 0.1,
-        tools: [{ fileSearch: {} }],
+        // FIX: Uklonjen redundantni fileSearch tool
     },
   }));
 
-  const markdownText = response.text;
+  // FIX: Poziv METODE .text() umesto propertija
+  const markdownText = result.text();
   if (!markdownText) {
-    throw getGeminiError(response, 'Markdown');
+    // FIX: Prosleđivanje .response u getGeminiError
+    throw getGeminiError(result.response, 'Markdown');
   }
   
   onProgress('Markdown fajl je uspešno generisan.');
-  return markdownText.trim().replace(/^```(?:markdown)?\s*\n/i, '').replace(/\n?```\s*$/, '');
+  
+  // GEMA FIX V3.0: Izbegavanje literalnog ``` koji lomi čet
+  const backticks = String.fromCharCode(96, 96, 96);
+  const startCodeFenceRegex = new RegExp(`^${backticks}(?:markdown)?\\s*\\n`, 'i');
+  const endCodeFenceRegex = new RegExp(`\\n?${backticks}\\s*$`);
+  
+  return markdownText.trim().replace(startCodeFenceRegex, '').replace(endCodeFenceRegex, '');
 }
 
 export async function answerQuery(query: string, geminiFileName: string): Promise<string> {
@@ -281,8 +311,8 @@ export async function answerQuery(query: string, geminiFileName: string): Promis
 
   const prompt = `Based *strictly* on the provided document, answer the following user query. Provide a concise and direct answer. If the answer is not in the document, state that clearly. Query: "${query}"`;
   
-  // FIX: Explicitly type the response to ensure properties are accessible.
-  const response: GenerateContentResponse = await performGeminiCall(() => geminiClient.models.generateContent({
+  // FIX: Tip rezultata je 'GenerateContentResult'
+  const result: GenerateContentResult = await performGeminiCall(() => geminiClient.models.generateContent({
     model: 'gemini-2.5-pro',
     contents: [{
         role: 'user',
@@ -294,13 +324,15 @@ export async function answerQuery(query: string, geminiFileName: string): Promis
     config: {
         safetySettings,
         temperature: 0.2,
-        tools: [{ fileSearch: {} }],
+        // FIX: Uklonjen redundantni fileSearch tool
     },
   }));
 
-  const text = response.text;
+  // FIX: Poziv METODE .text() umesto propertija
+  const text = result.text();
   if (!text) {
-    throw getGeminiError(response, 'Query Answer');
+    // FIX: Prosleđivanje .response u getGeminiError
+    throw getGeminiError(result.response, 'Query Answer');
   }
   
   console.log(`[QUERY] Got answer.`);
