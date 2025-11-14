@@ -1,6 +1,7 @@
 // HIPNODRECE v4.0 - GEMA JE INTERVENISALA.
 // SDK importi i pozivi su sada ispravni. Nema više mešanja stare i nove sintakse.
 // V3.0 FIX: Promenjena regex linija da izbegne ``` koji lomi čet.
+// V4.0 FIX: Uklonjen 'FunctionCallingConfigMode' (legacy) i zamenjen sa stringom "ANY".
 import {
   GoogleGenerativeAI,
   FunctionDeclarationSchemaType as Type,
@@ -9,8 +10,8 @@ import {
   GenerateContentResult,
   GenerateContentResponse, // Potrebno za tipizaciju greške
   File as GeminiSDKFile,
-  FunctionCallingConfigMode,
 } from '@google/generative-ai';
+// ^ OBRISAN 'FunctionCallingConfigMode' ODATLE
 import type { ProgressCallback, ExtractedMetadata, SacuvajPravnuAnalizuArgs } from './types.js';
 import { Buffer } from 'buffer';
 
@@ -218,7 +219,8 @@ export async function generateJsonData(uploadedFile: GeminiSDKFile, onProgress: 
         // FIX: Uklonjen redundantni fileSearch tool
         toolConfig: {
             functionCallingConfig: {
-                mode: FunctionCallingConfigMode.ANY,
+                // V4.0 FIX: Promenjeno iz 'FunctionCallingConfigMode.ANY' u string "ANY"
+                mode: "ANY",
                 allowedFunctionNames: ['sacuvajPravnuAnalizu']
             }
         },
@@ -338,3 +340,4 @@ export async function answerQuery(query: string, geminiFileName: string): Promis
   console.log(`[QUERY] Got answer.`);
   return text.trim();
 }
+```eof
