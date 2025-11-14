@@ -1,0 +1,5 @@
+{
+  "name": "∴NEBULOSA∵ PDF Analytics and RAG Preparation",
+  "description": "An application that performs detailed analysis and specific extraction from PDF documents, generating structured JSON and Markdown outputs optimized for RAG and AGI ingestion, powered by Gemini 2.5 Pro.",
+  "requestFramePermissions": []
+}
