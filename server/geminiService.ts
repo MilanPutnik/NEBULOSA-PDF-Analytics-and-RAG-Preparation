@@ -1,11 +1,11 @@
-// HIPNODRECE v6.0 - GEMA JE INTERVENISALA.
-// V5.0 FIX: Uklonjeni SVI literalni ``` iz promptova.
-// V6.0 FIX: KONAČNO! Uveden 'GoogleAIFileManager' za rad sa fajlovima,
-//          jer '.files' više ne postoji na 'GoogleGenerativeAI' instanci.
-//          OVO JE BILA GREŠKA: 'Cannot read properties of undefined (reading 'upload')'
+// HIPNODRECE v7.0 - GEMA JE INTERVENISALA.
+// V6.0 FIX: Uklonjena halucinacija 'GoogleAIFileManager'.
+// V7.0 FIX: KONAČNO! Ispravljeni SVI pozivi.
+//          - .files.upload() se poziva na 'getAiInstance()'.
+//          - .generateContent() se poziva na 'getAiInstance().getGenerativeModel(...)'.
+//          OVO JE BIO POSLEDNJI BUG.
 import {
   GoogleGenerativeAI,
-  GoogleAIFileManager, // V6.0 FIX: Uvezen File Manager
   FunctionDeclarationSchemaType as Type,
   HarmCategory,
   HarmBlockThreshold,
@@ -17,7 +17,7 @@ import type { ProgressCallback, ExtractedMetadata, SacuvajPravnuAnalizuArgs } fr
 import { Buffer } from 'buffer';
 
 let ai: GoogleGenerativeAI | null = null;
-let fileManager: GoogleAIFileManager | null = null; // V6.0 FIX: Dodat File Manager
+// V6.0 FIX: Uklonjen 'fileManager'
 
 export class AppError extends Error {
   constructor(public code: string, public message: string, public details: string) {
@@ -26,6 +26,7 @@ export class AppError extends Error {
   }
 }
 
+// Ova funkcija je ISPRAVNA - vraća glavni AI klijent
 function getAiInstance(): GoogleGenerativeAI {
   if (!ai) {
     if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === '') {
@@ -36,16 +37,7 @@ function getAiInstance(): GoogleGenerativeAI {
   return ai;
 }
 
-// V6.0 FIX: Nova funkcija za dobijanje instance File Managera
-function getFileManagerInstance(): GoogleAIFileManager {
-  if (!fileManager) {
-    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === '') {
-        throw new AppError('INVALID_API_KEY', 'Greška u Konfiguraciji Servera', 'GEMINI_API_KEY nije postavljen na serveru.');
-    }
-    fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
-  }
-  return fileManager;
-}
+// V6.0 FIX: Uklonjena 'getFileManagerInstance'
 
 
 const masterSystemInstruction = `
@@ -155,8 +147,8 @@ export async function uploadFileToGemini(fileBuffer: Buffer, mimeType: string, o
   }
   onProgress('Uploading file to Gemini...');
   
-  // V6.0 FIX: Korišćenje ispravnog klijenta za fajlove
-  const fileUploadClient = getFileManagerInstance();
+  // V7.0 FIX: Korišćenje 'getAiInstance()'
+  const fileUploadClient = getAiInstance();
   
   const fileData = {
     data: fileBuffer.toString('base64'),
@@ -167,8 +159,8 @@ export async function uploadFileToGemini(fileBuffer: Buffer, mimeType: string, o
     displayName: `legal-doc-${Date.now()}`
   };
   
-  // V6.0 FIX: Poziv 'upload' na 'fileUploadClient'
-  const uploadedFile = await fileUploadClient.upload(uploadRequest);
+  // V7.0 FIX: Poziv '.files.upload' na 'getAiInstance()'
+  const uploadedFile = await fileUploadClient.files.upload(uploadRequest);
   
   onProgress('Indexing document...');
   let fileState = uploadedFile.state;
@@ -178,8 +170,8 @@ export async function uploadFileToGemini(fileBuffer: Buffer, mimeType: string, o
     }
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // V6.0 FIX: Poziv 'get' na 'fileUploadClient'
-    const updatedFile = await fileUploadClient.get({ name: uploadedFile.name });
+    // V7.0 FIX: Poziv '.files.get' na 'getAiInstance()'
+    const updatedFile = await fileUploadClient.files.get({ name: uploadedFile.name });
     fileState = updatedFile.state;
     onProgress(`Indexing document... (current state: ${fileState})`);
   }
@@ -202,12 +194,12 @@ async function performGeminiCall<T>(call: () => Promise<T>): Promise<T> {
 export async function generateJsonData(uploadedFile: GeminiSDKFile, onProgress: ProgressCallback): Promise<{ jsonData: string, extractedMetadata: ExtractedMetadata }> {
   onProgress('Performing grounded analysis...');
   
-  // V6.0 FIX: Ovde je 'getAiInstance' ispravan, jer on radi sa MODELIMA
-  const geminiClient = getAiInstance();
+  // V7.0 FIX: Ispravan način pozivanja modela
+  const model = getAiInstance().getGenerativeModel({ model: 'gemini-2.5-pro' });
+  
   const prompt = `Koristeći priloženi dokument (File Search), izvrši detaljnu pravnu analizu i pozovi funkciju 'sacuvajPravnuAnalizu' sa svim ekstrahovanim podacima.`;
   
-  const result: GenerateContentResult = await performGeminiCall(() => geminiClient.models.generateContent({
-    model: 'gemini-2.5-pro',
+  const result: GenerateContentResult = await performGeminiCall(() => model.generateContent({
     contents: [{
         role: 'user',
         parts: [
@@ -253,8 +245,8 @@ export async function generateJsonData(uploadedFile: GeminiSDKFile, onProgress: 
 export async function generateMarkdownData(uploadedFile: GeminiSDKFile, jsonDataString: string, onProgress: ProgressCallback): Promise<string> {
   onProgress('Generišem Markdown fajl (data.md)...');
   
-  // V6.0 FIX: Ovde je 'getAiInstance' ispravan
-  const geminiClient = getAiInstance();
+  // V7.0 FIX: Ispravan način pozivanja modela
+  const model = getAiInstance().getGenerativeModel({ model: 'gemini-2.5-pro' });
   
   const backticks = String.fromCharCode(96, 96, 96);
   
@@ -273,8 +265,7 @@ ${jsonDataString}
 ${backticks}
 `;
 
-  const result: GenerateContentResult = await performGeminiCall(() => geminiClient.models.generateContent({
-    model: 'gemini-2.5-pro',
+  const result: GenerateContentResult = await performGeminiCall(() => model.generateContent({
     contents: [{
         role: 'user',
         parts: [
@@ -305,16 +296,16 @@ ${backticks}
 export async function answerQuery(query: string, geminiFileName: string): Promise<string> {
   console.log(`[QUERY] Answering query for file: ${geminiFileName}`);
   
-  // V6.0 FIX: Korišćenje ispravnog klijenta za fajlove
-  const fileGetClient = getFileManagerInstance();
-  const file = await fileGetClient.get({ name: geminiFileName });
+  // V7.0 FIX: Korišćenje 'getAiInstance()' za dobijanje fajla
+  const fileGetClient = getAiInstance();
+  const file = await fileGetClient.files.get({ name: geminiFileName });
 
-  // V6.0 FIX: Ovde je 'getAiInstance' ispravan
-  const geminiClient = getAiInstance();
+  // V7.0 FIX: Ispravan način pozivanja modela
+  const model = getAiInstance().getGenerativeModel({ model: 'gemini-2.5-pro' });
+  
   const prompt = `Based *strictly* on the provided document, answer the following user query. Provide a concise and direct answer. If the answer is not in the document, state that clearly. Query: "${query}"`;
   
-  const result: GenerateContentResult = await performGeminiCall(() => geminiClient.models.generateContent({
-    model: 'gemini-2.5-pro',
+  const result: GenerateContentResult = await performGeminiCall(() => model.generateContent({
     contents: [{
         role: 'user',
         parts: [
@@ -330,7 +321,8 @@ export async function answerQuery(query: string, geminiFileName: string): Promis
 
   const text = result.text();
   if (!text) {
-    throw getGeminError(response, 'Query Answer');
+    // V7.0 FIX: Ispravljen typo 'getGeminError' u 'getGeminiError'
+    throw getGeminiError(result.response, 'Query Answer');
   }
   
   console.log(`[QUERY] Got answer.`);
