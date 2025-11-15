@@ -157,6 +157,7 @@ export async function uploadFileToGemini(fileBuffer: Buffer, mimeType: string, o
   };
   
   // V8.0 FIX: Poziv 'uploadFile' (ne 'files.upload') sa ispravnim argumentima
+  // Ovo je ISPRAVNA SINTAKSA za "latest" paket
   const uploadResult = await fileUploadClient.uploadFile({
     file: fileData,
     displayName: `legal-doc-${Date.now()}`
